@@ -1,0 +1,878 @@
+---
+editor: visual
+format: 
+ pdf:
+  theme: paper
+  geometry:
+   - top=30mm
+   - left=15mm
+   - right = 15mm
+   - heightrounded
+---
+
+```{r,echo=FALSE,eval=TRUE, results = FALSE, message=FALSE, warning=FALSE}
+
+#Loading Libraries
+
+#Modelling
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(sjmisc)
+library(sjstats)
+library(arm)
+library(performance)
+
+#Visualisation
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(RColorBrewer)
+library(ggdendro)
+library(sjPlot)
+
+#Correlation
+library(purrr)
+library(Hmisc)
+
+#Rendering QMD
+library(tinytex)
+```
+
+```{r,echo=FALSE,eval=TRUE}
+
+#Recreating environment
+
+songdf=read.csv("D:/R Studio/r-studio-main/songdf.csv")
+
+songdf_cor=Hmisc::rcorr(as.matrix(dplyr::select(songdf,-c('track','release','releaseyr','album'))))
+
+songdf_cor_r=data.frame(songdf_cor$r) %>% round(3) #Checking for correlations
+
+songdflm=lm(popularity~age+explicit+speechiness,data=songdf)
+
+songdflm_null=lm(popularity~age,data=songdf)
+
+songdflmer1=lmer(data=songdf,popularity~age + (1|album))
+
+songdflmervc <- VarCorr(songdflmer1)
+
+lmer1=lmer(data=songdf,popularity~explicit+age+speechiness+tempo+valence+danceability+energy+loudness+acousticness+instrumentalness+liveness+duration+(1|album))
+
+lmer2=lmer(data=songdf,popularity~explicit+age+speechiness+tempo+valence+danceability+energy+loudness+acousticness+liveness+duration+(1|album))
+
+lmer3=lmer(data=songdf,popularity~explicit+age+speechiness+valence+danceability+energy+loudness+acousticness+liveness+duration+(1|album))
+
+lmer4=lmer(data=songdf,popularity~explicit+age+speechiness+valence+danceability+energy+loudness+acousticness+liveness+(1|album))
+
+lmer5=lmer(data=songdf,popularity~explicit+age+speechiness+valence+danceability+energy+acousticness+liveness+(1|album))
+
+lmer6=lmer(data=songdf,popularity~explicit+age+speechiness+tempo+valence+danceability+energy+loudness+liveness+duration+(1|album))
+```
+
+# Introduction
+
+A song's popularity can depend on many factors, such as the artist it belongs to, it's recentness, it's genre, lyrics, melody, to name a few. Spotify calculates these attributes and quantifies them as variables. While there are other papers out there that have already attempted to capture the relationship between these attributes, they've not covered a case specific approach to study the variables with respect to a specific genre. In this project, I attempt to explore the behaviour of song popularity, for the Hip-Hop Genre. While there are some factors that could possibly be more important for hip-hop songs, such as presence of explicit lyrics, complexity of lyrics, danceability of the track, it would be ideal to statistically decide which variables would be the most relevant. This project attempts to investigate the impact of these attributes on the song's popularity, using statistical techniques such as linear modelling and hypothesis testing.
+
+# Objectives
+
+The ultimate aim of this project is to study the effects of a song's attributes on it's popularity, for the hip-hop genre. Firstly, a dataset will need to be created using Spotify's API. This means that the data must be fetched using Spotify's API, wrangled and cleaned to remove columns that are not required, rename the columns and reorder the columns as required. A hierarchy needs to be defined for the data, which shall be used for statistical modelling. Following that, the variables that quantify various attributes of the songs need to be inspected for correlations with the song's Popularity, and analysed visually.
+
+The next part would involve formulating and testing various linear models to check for the most appropriate song features that could aid in predicting the popularity of hi-hop tracks. The next objective would be to introduce hierarchy in the model and analyse how that affects the model. This would help us arrive at the best fitting model for predicting hip-hop song popularity based on the finalised features within the model. The linear model shall be inspected next, to verify if it obeys the assumptions of linear modelling well, and if it fits the data well enough. The final objective is to use Quarto to build a presentable report.
+
+# Data
+
+There are many ready datasets available out there for Spotify music on websites such as Kaggle, however, they had some limitations. There was no dataset that catered specifically of one genre, but had songs from multiple genres in it. Adding to that, each of those datasets were only having about 100 to 200 rows of data, which was insufficient for building a robust model. For these reasons, the dataset used for this project had to be constructed from scratch using Spotify's API.
+
+To begin, an account was created on Spotify, and the account was registered as developer. On Spotify for Developers, a project was created, wherein the purpose for creating the account is to be specified, and it is to be declared that the project is not for commercial use. Once the project is created, we can obtain the Client ID and Client Secret, both of which would be required for connecting R Studio with Spotify's API. From this point on, every step that is taken towards building the dataset would require an access code or access token, which is dynamically generated every time a code snippet is executed.
+
+After installing and loading Spotify's library for R, the first step was to fetch a list of artists from Spotify, for a particular genre and save it to a dataset. This is the step that helped in creating an initial dataset for just the Hip-Hop genre. The API only provided the details of 50 rappers at most. This initial dataset only had the details of the artists themselves and not of any of their songs. Using this dataset, a second dataset was created, by using a for loop, that fetched details of all the songs performed by each of the rappers. Each time the loop was executed, all songs by an artist were stored in a temporary dataset. This temporary dataset was used to collect and append rows with each loop, to a larger dataset, where all songs details of all 50 rappers were gathered. Due to rate limiting from Spotify's API, only a specific number of loops could be executed at once, and the loop had to be re-executed for the remaining artists from the rappers dataset, until all rows from the rappers dataset had been covered. In addition, a sleep command had to be added within each loop to slow down the number of requests being sent to Spotify's API, and prevent error 429 (Spotify's rate limiting error).
+
+After verifying if the number of unique artists in the larger dataset was equal to the number of unique artists in the rappers dataset, we could conclude that the entire input dataset had been covered. The dataset with songs from 50 rappers lacked a variable called Popularity, which is essential for our project, and it is only available when the song details are fetched from a Spotify playlist. For this reason, the whole dataset of songs had to be uploaded into 3 separate Spotify playlists, each of them only allowing a maximum of 11000 songs to be in it. Next, a command was used to fetch the song details of all 3 playlists and store it in a separate dataset.
+
+This was the final dataset that needed to be cleaned. There were no missing values in any of the rows since the entire dataset was created using Spotify's API. The columns that were not essential for the project were then removed, and the remaining columns were renamed for convenience, and rearranged to resemble the hierarchy in the dataset. A column containing the dates of album releases stored dates as characters. The project required the years of release from the date, so those were extracted and stored as integers. This is because a new column was to be created to calculate the current age of each song in years. For safety, the entire clean dataset was stored as a new dataset which would now be used for data analysis and modelling. This clean dataset, along with all the objects, variables and linear models in the project were saved in and loaded from an RDS file each time while pausing or resuming the project. A few columns of the cleaned dataset was exported as a CSV file and imported in Quarto, to recreate the project environment for the report in R-Markdown.
+
+We must now look at brief definitions of each of the variables available to us. Popularity is a a numeric value for each song, with a value from 0 to 100, 100 being the maximum value for popularity. Spotify calculates this based on how many times a track has been played, and how recent those plays are. Acousticness is a float variable spanning from 0 to 1, and tells us how acoustic that track is. Danceability quantifies how suitable it is to dance on the track, from 0 to 1, based on various metrics such as beat and tempo, naming a few. Duration describes the length of the music track in milliseconds, however, it has been converted to seconds in this dataset, for the sake of convenience. Energy is a metric that captures how 'intense' or 'noisy' a song feels, spanning as a continuous variable from 0 to 1. Explicitness is a boolean value that indicates if a song has explicit lyrics or not. Instrumentalness is a continuous variable from 0 to 1, quantifying how 'musical' a song is (values closer to 1 indicate there are little to no lyrics in that music track). The Key specifies what's the musical key of the entire track and is a categorical variable. The Liveness if a track is a fractional numeric value from 0 to 1 which indicates how likely it is for that music track to be performed live (tracks with more 'audience noise' are more likely to have a higher value). Mode is a binary value indicating if the music used in the track has minor notes or major notes, major being indicated with 1 and minor with 0. The Speechiness of the song is a float value from 0 to 1, quantifying how lyrically heavy a particular song is (dealing with hip-hop, this value is highly relevant for the song). The Tempo of a song is quantified as an integer for the number of beats in the song, per minute. The Valence is a continuous variable, spanning from 0 to 1, quantifying how 'happy' a song is, with 0 indicating an extremely sad song, and 1 indicating that the song is very happy. The release date is a string value returned from Spotify's API. This column shall be used to extract the release year of the song, and later calculate the age of the song in years. It is to be noted that these definitions for each of Spotify's variables are publicly available within Spotify's [documentation for developers](https://developer.spotify.com/documentation/web-api/reference/#/operations/get-audio-features "Spotify Song Features Documentation").
+
+# Analysis and Results
+
+To begin, the most suitable variables that can help in predicting the Popularity of hip-hop songs, need to be determined. For selecting the most appropriate variables in the dataset, a correlation matrix needs to be created. A correlation matrix is a table which compares all or selected numeric variables in a dataset, and calculates covariates between them. This would help us eliminate variables that are not important for estimating the model. While a correlation matrix provides correlations of all variables in the dataset with each other, the only correlation coefficients required for this project are those, with respect to the dependent variable 'Popularity'. Hence, the following table exhibits only the relevant correlation coefficients from the matrix.
+
+|                | **Age**    | **Explicit** | **Speechiness**  | **Tempo**      | **Valence**  | **Danceability** |
+|----------------|------------|--------------|------------------|----------------|--------------|------------------|
+| **Popularity** | -0.169     | 0.306        | -0.080           | -0.019         | -0.065       | 0.003            |
+|                | **Energy** | **Loudness** | **Acousticness** | **Instrument** | **Liveness** | **Duration**     |
+| **Popularity** | 0.023      | 0.104        | 0.000            | 0.016          | -0.106       | 0.022            |
+
+: Karl Pearson's Coefficients of Correlation for Popularity and Song Features.
+
+It is observed in *Table 1* , that none of the variables in the dataset have a prominently high correlation (correlation of more than ±0.5), with Popularity. The covariates of Tempo, Valence, Danceability, Energy, Acousticness, Instrumentalness and Duration are especially low, hence they can be discarded. In comparison, the covariates of Age (-0.169), **Explicit (0.306)**, Speechiness (-0.08), Loudness (0.104) and Liveness (-0.106) are slightly higher. Now the relationship of these variables with Popularity can be investigated further.
+
+Since the logical variable 'Explicit' has the biggest impact on the tracks' popularity, it shall be investigated visually. The following is a box plot displaying the relationship between the song's Explicitness (True or False), and Popularity (0 to 100, 100 being the highest)
+
+```{r,echo= FALSE, fig.align="center", fig.cap="Box plot of the effect of the explicitness of songs, with their popularity. X-Axis indicates if the songs are explicit or not, and Y-Axis shows the value of popularity ranging from 0 to 100."}
+ggplot(data=songdf,aes(x=explicit,y=popularity)) +
+  geom_boxplot(fill="#1DB954",colour="black",width=0.6) +
+  stat_summary(geom="text", fun=quantile,aes(label=sprintf("%1.1f", ..y..)),
+               position=position_nudge(x=0.40), size=3.5)+
+  xlab("Explicit Lyrics") +
+  ylab("Song Popularity") +
+  ggtitle("Relationship Between Explicit Lyrics and Popularity")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+As observed from the box plot in Figure 1, the hip-hop tracks which have explicit lyrics have a higher median value of popularity (33.0), as compared to the median value of for songs that are not explicit (15.0). This indicates that in the hip-hop genre, songs that contain explicit lyrics are more likely to be popular. Here the median value is being considered since it is immune to any outliers in the dataset. These outliers can be observed on the upper whisker of the box plot, for songs without explicit lyrics, with the maximum value of 85 (upper boundary). While these songs appear to be outliers, they cannot be excluded from our calculation, since each of them are valid observations, and can contribute towards building our model.
+
+In order to further investigate the relationship of the chosen variables with the songs' Popularity linear regression modelling shall be used. As we're dealing with hierarchical data, wherein songs can be grouped together by their Album, an enhanced version of linear modelling, known as Hierarchical Modelling shall be used. This method effectively captures the similarity between songs, when grouped together using their albums. This prevents the model from considering each and every song as a unique observation, and accounts for their hierarchy with their respective albums. The type of model that shall be used is a random intercepts and fixed slopes mixed effect model. It has been assumed here that each and every album has a common slope.
+
+A few models have been explored to find the best combination of variables for predicting the popularity of the hip-hop songs. The approach taken here was to have the first hierarchical model, with all possible predictors in it, and gradually removing one variable at a time, if the p-values did not show those variables to be statistically significant for the model. The following is a list of mixed linear models that were built, and they've been compared using the ANOVA test.
+
+```{r, echo= FALSE, message= FALSE}
+anova(lmer1,lmer2,lmer3,lmer4,lmer5,lmer6,test='F') %>% kable(caption = "Table of comparison between considered Hierarchical Models using Analysis of Variance (ANOVA).")
+```
+
+In Table 2, six mix effect linear models have been considered. Each of them have random intercepts and fixed slopes. In each of the models, the grouping variable 'album' has been used account for hierarchy. In other words, 'album' has been added as a random effect. The method used to arrive at the best possible model is to start with a massive model with all variables in it, followed by removing the most insignificant predictor variable in that model (the variable with the highest P value in the model). Mixed effect linear model lmer1 contains all variables, lmer2 excludes instrumentalness, lmer3 excludes tempo from lmer2, lmer4 excludes song duration from lmer3 and finally, lmer5 excludes loudness from lmer4. In essence, the models lmer 1 to 5 are variations of each other with the exclusion of 1 statistically insignificant independent variable, from the previous model. In order to compare models, the AIC score has been used. The Akaike Information Criterion (AIC) is an estimator of prediction error, that accounts for both, model complexity, and explained variation. Since both AIC is an estimator of prediction errors, a lower score is desirable for it.
+
+As observed in Table 2, the model lmer2 has the lowest AIC (77507.9). Statistically, this model is the better than models lmer 1, 2, 3 and 4, however, it contains some variables such as acousticness, which does not have a massive impact for hip-hop songs (that is, instruments such as acoustic guitar are not commonly used). In order to check if it's removal creates a better model, it is compared to lmer6, a model similar to lmer2, with acousticness removed as a predictor. On comparing the models, it is observed that lmer2 has a lower AIC and BIC than lmer6, concluding that lmer2 is better. lmer2 uses the variables explicit, age, speechiness, tempo, valence, danceability, energy, loudness, acousticness, liveness, duration to predict the dependent variable popularity.
+
+In order to further investigate the model lmer2, the normality of residuals from the linear model shall be visualised.
+
+```{r, echo= FALSE, fig.align="center", fig.cap="Scatter Plots to check for linearity and homogeneity of variance in mixed linear model lmer2", fig.width=9, fig.height=4}
+
+check_model(lmer2,check=c("linearity","homogeneity"))
+```
+
+Figure 2 displays a scatter plot of the fitted (predicted) values of 'popularity' against the residuals in the model. It is desirable that there should be no slope or pattern forming in this plot, and the fitted values should be scattered all across the graph. However, it can be observed that there is a sharp cut-off. A possible reason for this is that the popularity of the songs can only range from 0 to 100 and that the possibilities of having negative residuals against negative predicted values, is reduced. The plot next to it shows standardized residuals instead, which means, they have been rescaled. This plot emphasises more on the variability in residuals and magnifies the effect of the normal scatter plot. Apart from that, it is the same as the other scatter plot. Again in this plot, the reference line needs to be as flat as possible.
+
+Every linear model is built based on certain assumptions. One of those assumptions is that the residuals of the linear model follow a normal distribution. In order to check how well the model incorporates that assumption, a Q-Q plot and a histogram can be used can be used.
+
+```{r, echo=FALSE, fig.align="center", fig.cap="Normal Q-Q Plot and Histogram to check if the Residuals from mixed linear model lmer2 follow a normal distribution", fig.width=9, fig.height=4}
+
+check_model(lmer2,check=c("qq","normality"))
+```
+
+As observed in Figure 3, the sample quantiles from the mixed linear model lmer2, almost match with the theoretical quantiles for the data. This means that the residuals of the model lmer2 follow a distribution that is close to normal. The closer the sample quantiles are to the theoretical quantiles, better is the fit of the model, for the given data. the reference line in the Q-Q plot is also very close to being horizontal. For reference, this line should ideally be perfectly horizontal. To better visualise the normality of residuals, the histogram in Figure 4 can be observed. As observed in the histogram, the residuals indeed follow a distribution that is almost normal.
+
+The following table can help in assessing the fit and goodness of the linear model lmer2, in respect to it's fixed effects as well as it's random effect (album).
+
+```{r, echo=FALSE}
+model_performance(lmer2) %>% kable(caption="Table to check performance and fit of the mixed effect linear model lmer2.")
+```
+
+From Table 3, the key metrics to be studied to check the model fit are ICC and Conditional R^2^. The Inter Class Correlation (ICC) returns a value from 0 to 1 depending on how well the hierarchy fits the model. It can be observed from Table 3, that the ICC for lmer2 is 0.81, indicating that 81% of the variability in the model can be explained by tracks being grouped using their albums. Further, The conditional R^2^ is a proportion of total variance with possible values from 0 to 1, taking both, the fixed and random effects into consideration. In Table 3, the the conditional R^2^ can be observed as 0.85, which means that 85% of the variance in popularity can be explained by model lmer2 as a whole.
+
+# Limitations
+
+There are some limitations to this project that need to be discussed. Firstly, the data that has been used for the study, has all songs from just 50 rappers/ artists, which is only a sample of all the artists within the genre. That being said, the analysis drawn here is only an estimate of the actual values, and an increase in sample size would likely affect our findings. Secondly, the mathematical calculations and formulae that go behind computing the features for each song, are not made public by Spotify. Knowing and applying how the values are calculated would add more complexity to the model and would make it more precise.
+
+The hierarchical modelling itself, had some limitations as well. Every song comes either from a single artists or a group of artists. If the songs and albums would have been structured along with their artists in the hierarchy, it would add more complexity to the model, since there could be cross-hierarchy between the songs and artists. This means that an album could have 5 songs from a single artist, and 3 songs with more than one artist, and in 2 of those 3 songs, the same 2 artists have performed. This model doesn't account for that cross hierarchy and is only restricted up to the album level. Apart from that, there may be songs in the dataset with remastered versions and remixes. Each of those have been treated as separate songs since remixes can be more or less popular than the song, and also release at a different date or year. However, in cases where the remixes and orginals and/or the originals and remastered versions are identical, the duplication has not been accounted for. Songs can also have varied popularity in different regions of the world depending on culture and on language. The model has not considered the varied popularity of these songs based on different locations, and hence the model only aims to estimate the popularity of songs on an overall global level (not based on specific locations). It is also possible to arrive at better models for this data, using other methods such as non-linear modelling or generalized linear modelling, however, those possibilities have not been explored.
+
+The residuals of the model lmer2 do not scatter evenly on a scatter plot and there is a sharp pattern observed in it. A possible reason for this as mentioned earlier, is that the popularity of the songs can only range from 0 to 100 and that the possibilities of having negative residuals against negative predicted values, is reduced. (Refer to Figure 2)
+
+Since this study only considers tracks from the hip-hop genre, and musical attributes significant for that genre, this project's findings can only be applied to hip-hop songs and albums. That being said, a similar study and similar model can be conducted for any other musical genre, using the same steps as the ones used in this project, making this reproducible. This leans into the limitation that this is not a blanket study covering an advanced model, factoring the behaviour of each and every genre, to make more precise predictions for songs of any type. This model can form a component of a larger model that considers all the other factors mentioned above such as location, genre and artists, provided we can acquire more precise data for songs in different settings (such as, the popularity of a song in USA, for the R&B genre).
+
+# Conclusion
+
+The aim of the project was to determine the relationship of songs' popularity scores with their factors, with respect to the Hip-Hop genre. While this project might be specific to the hip-hop genre, it was created to be reproducible for song's of any other genre, using Spotify's data. Data from Spotify's API has been used throughout the entire project. After the initial elimination of insignificant variables, the relationship of the most noteworthy variable, 'explicit' with popularity, was studied visually. It revealed that for the hip-hop genre, the tracks with explicit lyrics were dramatically more popular, as compared to the non-explicit ones.
+
+Since there were many possible variables that could affect the popularity of songs, the most statistically significant ones were kept, creating a mixed effect linear model, using albums as a grouping variable. While some variables in the model were not intuitively correlated to popularity for hip-hop tracks, they were still statistically significant for the linear model. The model lmer2 was tested to check if the presence of the random effect helped the model in any way. It was confirmed from the ICC test that the presence of the random effect greatly increased the accuracy of the model, with an Adjusted Inter-Class Correlation Coefficient of 81%. Finally, the fit and goodness of the model were inspected using various tests such as Q-Q Plots and R-Squared. It can be concluded that the model lmer2 provides a decent fit for the data to predict popularity.
+
+Holistically, the analysis provides a evidence, that there is a relationship between the song's features and popularity, in the hip-hop genre, despite a lack of strong collinearity between individual variables and popularity.
+
+\newpage
+
+# Appendix
+
+The majority of this project was built in an R Script. The following is the complete syntax for the Spotify project in R.
+
+```{r, eval=FALSE, echo=TRUE, tidy=TRUE, formatR::tidy_source(wrap = getOption("formatR.wrap", TRUE))}
+
+#Installing some basic libraries here and loading them. Only some of them might
+#be needed.
+
+#Installing & loading libraries for Hierarchical Modelling
+install.packages("lme4")
+install.packages("lmerTest")
+install.packages("sjPlot")
+install.packages("sjmisc")
+install.packages("sjstats")
+install.packages("arm")
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(sjmisc)
+library(sjstats)
+library(arm)
+
+#Libraries for Data Wrangling & Visualisation
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(GGally)
+library(httr)
+library(jsonlite)
+library(tidyr)
+library(zoo)
+library(RCurl)
+
+#Other miscellaneous libraries
+install.packages('gt')
+install.packages('skimr')
+install.packages('ggdist')
+install.packages('showtext')
+library(gt)
+library(skimr)
+library(ggdist)
+library(showtext)
+
+#Installing tinytex for Quarto. Tinytex helps in outputting r markdown files
+#in pdf format.Tinytex was giving multiple issues if I tried to download it
+#through 'install.packages()' function. To solve this, the library had to be
+#manually downloaded as a zip file and read into R.
+tinytex:::install_prebuilt("C:/Users/Junaid Barodawala/Downloads/TinyTeX-2.zip")
+library(tinytex)
+
+#This helps me check if tinytex has been installed, and returns the file
+#location of tinytex installed in the system.
+tinytex_root()
+
+
+#Installing formatting library for code chunks in Quarto.
+install.packages("formatR")
+
+#Libraries for accessing Spotify API in R. Devtools aids in installing
+#libraries from GitHub,whenever required.
+install.packages("devtools")
+install.packages("spotifyr")
+library(devtools)
+library(spotifyr)
+
+#Installing a version of spotifyr that is inspired by tidyverse. It will help
+#us in interacting better with the API
+install.packages('tinyspotifyr')
+library(tinyspotifyr)
+
+#Authentication for accessing Spotify API. The client ID and client secret are
+#unique to each Spotify Application created on https://developer.spotify.com/
+
+Sys.setenv(SPOTIFY_CLIENT_ID = 'caad3dd1af4e4dc58f0ffd0f623ebb0d')
+Sys.setenv(SPOTIFY_CLIENT_SECRET = '8aeb8149e5d34915913e3421afd9b334')
+
+access_token <- get_spotify_access_token()
+
+#Testing API. The function 'get_artist_audio_features' returns the variables
+#concerned with a particular musical artist. In this case, Eminem has been
+#considered.
+get_artist_audio_features('eminem') #succeeded
+
+
+#Fetching details for 50 artists from hip-hop genre and storing it in a data
+#frame. This dataframe will serve as the input dataframe for a for loop, that
+#will download a list of all songs from Spotify, for each artist in the dataset
+#rappers
+rappers = get_genre_artists(
+  genre = 'hip-hop',
+  market = NULL,
+  limit = 50,
+  offset = 0,
+  authorization = access_token
+)
+
+#Creating a dataframe with the desired format to serve as the main raw dataset.
+hiphop = get_artist_audio_features('eminem')
+
+#USE WITH EXTREME CAUTION! The following code will create a blank data frame
+#and clean every row from the it, except for the headings.
+hiphop = hiphop[0, ] #Clears up the whole database!
+
+#Fetching details of all songs by all 50 artists in the list. A sleep time in
+#seconds has been added to prevent rate limiter issues (Spotify Error 429).
+#In case one does not add Sys.sleep (in other words, a cooldown time for the
+#loop to run again, the loop creates and sends too many requests to the API,
+#which causes the loop to stop working). There is an unknown number of requests
+#that can be sent every 30 seconds, and every for loop dealing with the API has
+# a random sleep time (whatever worked at the time!)
+for (i in 1:50) {
+  single_rapper_data = get_artist_audio_features(rappers$name[i])
+  hiphop = rbind(hiphop, single_rapper_data)
+  Sys.sleep(15)
+}
+
+#Despite adding sleep time, the API threw an error and out of 50 artists, it
+#only executed the loop for 40.
+tail(hiphop, 1) #Checking the last row of the incomplete dataset
+
+#Checking row number of last successful loop execution, using the rapper's name,
+#observed and obtained from the previous command.
+which(rappers$name == 'The Kid LAROI')
+
+#Attempting to fetch data of the remaining 10 artists. Sleep time has been
+#increased to avoid rate limiter.
+for (i in 41:50) {
+  single_rapper_data = get_artist_audio_features(rappers$name[i])
+  hiphop = rbind(hiphop, single_rapper_data)
+  Sys.sleep(31)
+}
+
+#Checking if data has been fully fetched. Total number of unique artists should
+#be 50
+
+n_distinct(hiphop$artist_name) == n_distinct(rappers$name) #successfully matched
+
+#Saving environment. In order to prevent loss of progress, the project
+#environment has been saved to an rds file, that can be recovered whenever
+#needed to continue where I left off.
+
+save.image(file = "D:/R Studio/Downloads/Data/For Project/Spotify Database/
+           API Data/hiphop_main.rds")
+
+
+#Right here,there was a problem, that the songs downloaded in the dataset
+#'hiphop', was not having the dependent variable that was needed for the study,
+#that is, 'popularity'. Upon checking the documentation, it was discovered that
+#calling songs from a playlist provided the variable. Hence, the next step is
+#to create playlists on Spotify, uploading songs from the dataset hiphop to
+#them. Next, the features and details of the songs in these custom-made
+#playlists would be extracted in a separate dataframe.
+
+#Checking if user authorisation succeeded. In order to add songs to a playlist
+#or create a playlist, we need to login as a user
+
+get_my_playlists(
+  limit = 20,
+  offset = 0,
+  authorization = get_spotify_authorization_code(),
+  include_meta_info = FALSE
+)
+
+#Dividing Track URI column from Hip-Hop dataset, into chunks of 100, since the
+#API only accepts URIs upto batches of 100. Each of these chunks will be passed
+#into a for loop, that will upload songs to the specified Spotify playlist.
+hiphop_track_uri_chunks = split(hiphop$track_uri,
+                                ceiling(seq_along(hiphop$track_uri) / 100))
+
+#The number 222 was arrived at, by dividing the total number of rows in the
+#hiphop data frame, in chunks of 100. 222 were the number of chunks formed.
+for (i in 1:222)
+{
+  add_tracks_to_playlist(
+    '3rOI31k9heJ2qAM3WdnGSD',
+    uri = unlist(hiphop_track_uri_chunks[i]),
+    position = NULL,
+    authorization = get_spotify_authorization_code()
+  )
+  Sys.sleep(15) #To prevent rate limiter issues (Spotify Error 429)
+}
+
+#The first loop only got executed till the 110th row of the list, since Spotify
+#only allows upto 110*100=11000 songs in a playlist.Feeding remaining songs
+#into second playlist. The following is a code to create a playlist in Spotify
+
+create_playlist(
+  '31akkdhbmbzen7qrnossiopmxzya',
+  'Hip-Hop Songs 2',
+  public = FALSE,
+  collaborative = FALSE,
+  description = 'All songs of 50 rappers. Songs: 11001 to 22000',
+  authorization = get_spotify_authorization_code()
+)
+
+
+#Running loop again with interval 111:222. A third playlist might also be
+#needed.
+
+for (i in 111:222)
+{
+  add_tracks_to_playlist(
+    '0hFOj9sU3J2WaEdHx160TM',
+    uri = unlist(hiphop_track_uri_chunks[i]),
+    position = NULL,
+    authorization = get_spotify_authorization_code()
+  )
+  Sys.sleep(20) #To prevent rate limiter issues (Spotify Error 429)
+}
+
+#Creating 3rd playlist for remaining songs and adding the remaining songs to
+#them. New interval is 221:222
+
+create_playlist(
+  '31akkdhbmbzen7qrnossiopmxzya',
+  'Hip-Hop Songs 3',
+  public = FALSE,
+  collaborative = FALSE,
+  description = 'All songs of 50 rappers. Songs: 22001 to 22186',
+  authorization = get_spotify_authorization_code()
+)
+
+
+for (i in 221:222)
+{
+  add_tracks_to_playlist(
+    '6wpEkFXqQKxti8HFSoGCyr',
+    #got new playlist id from running previous code
+    uri = unlist(hiphop_track_uri_chunks[i]),
+    position = NULL,
+    authorization = get_spotify_authorization_code()
+  )
+  Sys.sleep(20) #To prevent rate limiter issues (Spotify Error 429)
+}
+
+#Saving the environment (the next code snippet is risky)
+save.image(file = "D:/R Studio/Downloads/Data/For Project/Spotify Database/
+           API Data/hiphop_main.rds")
+#Push code to git as well
+
+#Fetching track details for each of the 3 playlists and storing them in a single
+#dataframe, named 'hiphop_songs'. IDs for the 3 playlists can be obtained from
+#Spotify.
+
+hiphop_songs = get_playlist_audio_features(
+  '31akkdhbmbzen7qrnossiopmxzya',
+  #found in Spotify user profile
+  c(
+    '3rOI31k9heJ2qAM3WdnGSD',
+    '0hFOj9sU3J2WaEdHx160TM',
+    '6wpEkFXqQKxti8HFSoGCyr'
+  ),
+  authorization = get_spotify_access_token()
+)
+
+#The final raw dataframe with Track Popularity included,has been created.
+#We'll be cleaning the data now. We'll be leaving the original data frame
+#intact, and use a separate data frame to clean and work with.
+
+songdf = hiphop_songs
+
+#Checking the structure of the new data frame
+str(songdf)
+
+songdf %>% summarise_all(funs(sum(is.na(.))))
+#Checked for Missing Values. None Found
+
+#Checking just the column names of songdf
+colnames(songdf)
+
+#Removing unwanted columns
+songdf = select(
+  songdf,
+  -c(
+    "playlist_id",
+    "playlist_name",
+    "playlist_img",
+    "playlist_owner_name",
+    "playlist_owner_id",
+    "is_local",
+    "primary_color",
+    "added_by.href",
+    "added_by.id",
+    "added_by.type",
+    "added_by.uri",
+    "added_by.external_urls.spotify",
+    "track.disc_number",
+    "track.episode",
+    "track.href",
+    "track.is_local",
+    "track.preview_url",
+    "track.track",
+    "track.track_number",
+    "track.type",
+    "track.album.album_type",
+    "track.album.available_markets",
+    "track.album.href",
+    "track.album.id",
+    "track.album.images",
+    "track.album.release_date_precision",
+    "track.album.total_tracks",
+    "track.album.type",
+    "track.album.external_urls.spotify",
+    "track.external_ids.isrc",
+    "track.external_urls.spotify",
+    "video_thumbnail.url",
+    "key_name",
+    "mode_name",
+    "key_mode",
+    "track.id",
+    "analysis_url",
+    "time_signature",
+    "added_at",
+    "track.album.artists",
+    "track.artists",
+    "track.album.uri",
+    "track.uri",
+    "key",
+    "mode",
+    'track.available_markets'
+  )
+)
+
+colnames(songdf) #Checking column names
+
+#Retrieving environment from RDS file (cause I had to restart R)
+load(file = "D:/R Studio/Downloads/Data/For Project/Spotify Database/
+     API Data/hiphop_main.rds")
+
+#Renaming Columns
+
+library(plyr) #Using dplyr isn't working, trying plyr instead
+
+songdf = plyr::rename(
+  songdf,
+  c(
+    'track.duration_ms' = 'duration',
+    'track.explicit' = 'explicit',
+    'track.name' = 'track',
+    'track.popularity' = 'popularity',
+    'track.album.name' = 'album',
+    'track.album.release_date' = 'release'
+  )
+)
+
+colnames(songdf) #Checking column names
+
+#Manipulating column formats. This will help in working with the data later,
+#for linear modelling
+
+#Converting duration in milliseconds to seconds
+songdf$duration = songdf$duration / 1000
+
+#Extracting year from date column.
+install.packages("stringr")
+library(stringr)
+
+#Split date string by -, extracted first element from nested list of each row,
+#and converted sub-strings to integers. This is done in order to extract the
+#release year, which will later be used to calculate the age of the songs.
+songdf$releaseyr = as.numeric(lapply(str_split(songdf$release, "-"), '[[', 1))
+songdf %>% summarise_all(funs(sum(is.na(.)))) #Checking for missing vales
+head(select(songdf, c(duration, releaseyr)))
+
+#Adding a column for age (how old is the song)
+
+songdf$age = 2022 - songdf$releaseyr
+
+#Checking if column has been correctly computed. This would return NA if there
+#were missing values
+mean(songdf$age)
+
+#Reordering columns as per hierarchy and usefulness of columns.
+#Hierarchy: Genre (Hip-Hop)-> Date/Year/Age -> Albums-> Tracks.
+
+songdf = songdf[, c(
+  "release",
+  "releaseyr",
+  "age",
+  "album",
+  "track",
+  "popularity",
+  "explicit",
+  "speechiness",
+  "tempo",
+  "valence",
+  "danceability",
+  "energy",
+  "loudness",
+  "acousticness",
+  "instrumentalness",
+  "liveness",
+  "duration"
+)]
+
+#Using this function to check the order of columns in the data frame songdf
+colnames(songdf)
+
+#Exporting data frame into a csv for sending data to quarto. This was done
+#because the project was made in this r-script file, but the report is to be
+#created in Quarto. Unfortunately, Quarto cannot inherit the global environment
+#of the project, while rendering the document, and hence the data frame needs
+#to be defined separately. The csv would be used for this definition in Quarto.
+write.csv(songdf, "D:/R Studio/r-studio-main/songdf.csv", row.names = FALSE)
+
+
+#Exploratory Analysis
+summary(songdf)
+
+#Using ggpairs to check for correlations. Since the number of variables in
+#the data frame is very huge, it is difficult to understand anything from
+#ggpairs. Hence a correlation matrix shall be used next.
+ggpairs(dplyr::select(songdf, -c('duration', 'track', 'release', 'album')))
+
+
+#Building a correlation matrix to check for all correlations
+
+#These libraries are needed for creating the matrix
+library(purrr)
+library(Hmisc)
+
+songdf_cor = Hmisc::rcorr(as.matrix(dplyr::select(
+  songdf, -c('track', 'release',
+             'releaseyr',
+             'album')
+)))
+
+#The matrix returns other values as well, apart from just the correlation
+#coefficients, and hence, only the correlation coefficients need to extracted
+#and stored separately.
+
+#Rounding off the correlation matrix to 3 decimals and storing it in a dataset
+songdf_cor_r = data.frame(songdf_cor$r) %>% round(2)
+str(songdf_cor_r)
+songdf_cor_r$popularity
+
+#Plotting correlation matrix using ggcorrplot. It is difficult to judge any
+#kind of correlation from the correlation matrix plot, since there are very
+#weak correlations in the data set. Hence this cannot be used in the report.
+library(ggcorrplot)
+ggcorrplot(
+  songdf_cor_r,
+  hc.order = TRUE,
+  type = "lower",
+  lab = TRUE,
+  outline.col = "black",
+  ggtheme = ggplot2::theme_gray,
+  colors = c("black", "white", "#013220")
+)
+
+
+#Visually exploring correlations
+
+#Age and Popularity
+ggplot(data = songdf, aes(x = age, y = popularity)) +
+  geom_point() +
+  stat_smooth(method = "lm", col = "#1DB954") +
+  xlab("Age of Songs (In Years)") +
+  ylab("Song Popularity") +
+  ggtitle("Relationship Between Ages of Songs and Popularity") +
+  theme(plot.title = element_text(hjust = 0.5))
+#scale_color_brewer(palette="Greens")
+
+#Explicit and Popularity
+ggplot(data = songdf, aes(x = explicit, y = popularity)) +
+  geom_boxplot(fill = "#1DB954",
+               colour = "black",
+               width = 0.6) +
+  stat_summary(
+    geom = "text",
+    fun = quantile,
+    aes(label = sprintf("%1.1f", ..y..)),
+    position = position_nudge(x = 0.40),
+    size = 3.5
+  ) +
+  xlab("Explicit Lyrics") +
+  ylab("Song Popularity") +
+  ggtitle("Relationship Between Explicit Lyrics and Popularity") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Speechiness and Popularity
+ggplot(data = songdf, aes(x = speechiness, y = popularity)) +
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  xlab("Speechiness") +
+  ylab("Song Popularity") +
+  ggtitle("Relationship Between Speechiness and Popularity") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#Saving environment
+save.image(file = "D:/R Studio/Downloads/Data/For Project/
+           Spotify Database/API Data/hiphop_main.rds")
+
+
+#Basic Linear Modelling & Hypotheses Testing
+
+#These basic linear models were built based on domain knowledge, however, they
+#were not of much use.
+
+#Linear model using Age, Explicitness and Speechiness, ignoring hierarchy
+songdflm = lm(popularity ~ age + explicit + speechiness, data = songdf)
+summary(songdflm) #Alpha=0.05
+plot(songdflm)
+
+#Linear model using only Age, removing other predictors
+songdflm_null = lm(popularity ~ age, data = songdf)
+summary(songdflm_null) #Alpha=0.05
+
+anova(songdflm, songdflm_null) #Testing the difference between. Alpha=0.05
+
+#Fixed Effect Model where each album is added as an interaction)
+#Does not work well
+songdffelm = lm(
+  popularity ~ age + explicit + speechiness + age * album + explicit * album +
+    speechiness * album,
+  data = songdf
+)
+summary(songdffelm) #Alpha=0.05
+#F-statistic: 49.39 on 1938 and 21283 DF,  p-value: < 2.2e-16
+
+save.image(file = "D:/R Studio/Downloads/Data/For Project/Spotify Database/
+           API Data/hiphop_main.rds")
+
+#Beginning Hierarchical Modelling- Increasing complexity bit by bit, and
+#comparing models at every stage using ANOVA
+
+
+#Simpler Models- Just Checking
+
+#Random intercepts multilevel model- Explicit
+songdflmer1 = lmer(popularity ~ explicit + (1 | album), data = songdf)
+summary(songdflmer1)
+coef(summary(songdflmer1))
+
+#Random intercepts multilevel model- Explicit & Age
+songdflmer2 = lmer(popularity ~ explicit + age + 
+                     (1 |album), data = songdf)
+summary(songdflmer2)
+coef(summary(songdflmer2))
+
+#Random intercepts multilevel model- Explicit, Age and Speeciness
+songdflmer3 = lmer(popularity ~ explicit + age + speechiness + 
+                     (1 | album), data = songdf)
+summary(songdflmer3)
+coef(summary(songdflmer3))
+plot(
+  songdflmer3,
+  col = "#1DB954",
+  main = "SongDF-LMER3",
+  xlab = "Fitted Values",
+  ylab = "Residuals"
+)
+
+#Comparing mixed effects model 2 and 3
+anova(songdflmer2, songdflmer3)
+
+#Comparing mixed effects model 1, 2 and 3
+anova(songdflmer1, songdflmer2, songdflmer3)
+
+#The models that were tried above were created using trial and error and did
+#not work well enough. Since there are so many variables to choose from, the
+#most appropriate ones are to be determined, by considering the most complex
+#model first that has all the variables. Next, using the p values, the most
+#insignificant fixed effect would be removed one at a time. Finally, the ANOVA
+#test would be used to compare the models.
+
+lmer0 = lmer(data = songdf, popularity ~ 1 + (1 |
+                                                album)) #Baseline model
+summary(lmer0)
+
+lmer1 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + tempo + valence +
+    danceability + energy + loudness + acousticness + instrumentalness +
+    liveness + duration + (1 | album)
+)
+
+#This function helps in only extracting the fixed effects and intercept part of
+#the summary, for mixed effect linear models
+coef(summary(lmer1))
+
+#Instrumentalness has been removed from the previous model
+lmer2 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + tempo + valence +
+    danceability + energy + loudness + acousticness + liveness +
+    duration +
+    (1 | album)
+)
+coef(summary(lmer2))
+
+#Tempo has been removed from the previous model
+lmer3 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + valence +
+    danceability + energy + loudness + acousticness + liveness +
+    duration +
+    (1 | album)
+)
+coef(summary(lmer3))
+
+#Song duration has been removed from the previous model
+lmer4 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + valence +
+    danceability + energy + loudness + acousticness + liveness +
+    (1 | album)
+)
+coef(summary(lmer4))
+
+#Loudness has been removed from the previous model
+lmer5 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + valence +
+    danceability + energy + acousticness + liveness + (1 |
+                                                         album)
+)
+coef(summary(lmer5))
+
+#Same as lmer2, excluding acousticness
+lmer6 = lmer(
+  data = songdf,
+  popularity ~ explicit + age + speechiness + tempo + valence +
+    danceability + energy + loudness + liveness + duration + (1 |
+                                                                album)
+)
+coef(summary(lmer6))
+
+#Comparing lmer 2, the model with statistically significant variables, with
+#lmer6, the model wherein acousticness is removed
+anova(lmer2, lmer6)
+
+anova(lmer1, lmer2, lmer3, lmer4, lmer5, lmer6, test = 'F') %>% kable()
+
+#This library helps in visualising and checking the performance of linear models
+library(performance)
+
+#Checking for normality in residuals
+check_model(lmer2, check = c("linearity", "homogeneity"))
+
+#Using sjPlot to visualise model lmer2
+install.packages("sjPlot")
+library(sjPlot)
+sjPlot::plot_model(lmer2) #WORKED
+
+#Inspecting random effects
+install.packages('glmmTMB')
+library(glmmTMB)
+plot_model(lmer2, type = "re")
+
+#Inspecting residuals
+plot_model(lmer2, type = "resid")
+
+#Inspecting slopes
+plot_model(lmer2, type = "slopes")
+
+icc(lmer2)
+
+#QQ Plot- Checking if residuals follow a normal distribution
+check_model(lmer2, check = c("qq", "normality"))
+
+#Creating a table for lmer2. This table cannot be rendered using latex, and
+#hence shall be discarded for the report
+sjPlot::tab_model(
+  lmer2,
+  show.re.var = TRUE,
+  pred.labels = c(
+    "(Intercept)",
+    "Explicit (True)",
+    "Age",
+    "Speechiness",
+    "Tempo",
+    "Valence",
+    "Danceability",
+    "Energy",
+    "Loudness",
+    "Acousticness",
+    "Liveness",
+    "Duration"
+  ),
+  dv.labels = "Effects of Song Features on Song Popularity"
+)
+
+#Making a table that would help in assessing model fit and goodness
+model_performance(lmer2) %>% kable(caption = "Table to check performance and
+                                   fit of the mixed effect linear model lmer2.")
+
+save.image(file = "D:/R Studio/Downloads/Data/For Project/Spotify Database/
+           API Data/hiphop_main.rds")
+```
