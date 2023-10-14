@@ -5,7 +5,7 @@ Please read this file to understand how the scripts have been confirgured and in
 The project is divided into 3 scripts and are to be executed in the following order:
 1. **Data Wrangling & Processing:** 
 	- This script opens up raw data and completes the first step, that is preprocessing and cleaning the data. 
-	- The raw data is accessed from CSV files accessed from ...
+	- The raw data is taken from CSV files accessed from [Japan Atomic Energy Agnecy](https://fukushima.jaea.go.jp/en/) (for Radioactivity Data) and [COPEPOD Project](https://www.st.nmfs.noaa.gov/copepod/) (for plankton data). All of this data can also be accessed from the folder **'Data'** within this project's repository tree.
 2. **Harmonic Computation and Time Series Modelling:** 
 	- The environment prepared from running the first script has been stored in a RDS file, and the same has been loaded at the beginning of this file.
 	- This script is responsible for all trigonometric computations and time series models using ARIMA (Autoregressive Integrated Moving Average) technique.
