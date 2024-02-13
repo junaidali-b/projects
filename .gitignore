@@ -1,0 +1,6 @@
+#File types to ignore
+
+*.Rhistory
+*.RData
+*.pkl
+*.pickle
